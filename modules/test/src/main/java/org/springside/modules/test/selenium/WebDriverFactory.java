@@ -8,14 +8,13 @@ package org.springside.modules.test.selenium;
 import java.net.MalformedURLException;
 import java.net.URL;
 
+import org.apache.commons.lang3.Validate;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.firefox.FirefoxDriver;
-import org.openqa.selenium.htmlunit.HtmlUnitDriver;
 import org.openqa.selenium.ie.InternetExplorerDriver;
 import org.openqa.selenium.remote.DesiredCapabilities;
 import org.openqa.selenium.remote.RemoteWebDriver;
-import org.springframework.util.Assert;
 
 /**
  * 创建WebDriver的工厂类.
@@ -27,8 +26,6 @@ public class WebDriverFactory {
 	 * 根据driverName创建各种WebDriver的简便方法.
 	 * 
 	 * 支持主要的firefox,ie,chrome三种常用浏览器.
-	 * 
-	 * 支持不需要浏览器，可快速运行的HtmlUnit.
 	 * 
 	 * 当持续集成服务器安装在非Windows机器上, 没有IE浏览器与XWindows时, 又希望使用真正的浏览器时，需要使用remote driver调用远程的Windows机器.
 	 * drivername如remote:192.168.0.2:4444:firefox, 此时要求远程服务器在http://192.168.0.2:4444/wd/hub上启动selenium remote服务.
@@ -42,11 +39,9 @@ public class WebDriverFactory {
 			driver = new InternetExplorerDriver();
 		} else if (BrowserType.chrome.name().equals(driverName)) {
 			driver = new ChromeDriver();
-		} else if (BrowserType.htmlunit.name().equals(driverName)) {
-			driver = new HtmlUnitDriver(true);
 		} else if (driverName.startsWith(BrowserType.remote.name())) {
 			String[] params = driverName.split(":");
-			Assert.isTrue(params.length == 4,
+			Validate.isTrue(params.length == 4,
 					"Remote driver is not right, accept format is \"remote:localhost:4444:firefox\", but the input is\""
 							+ driverName + "\"");
 
@@ -72,12 +67,12 @@ public class WebDriverFactory {
 			}
 		}
 
-		Assert.notNull(driver, "Driver could be found by name:" + driverName);
+		Validate.notNull(driver, "Driver could be found by name:" + driverName);
 
 		return driver;
 	}
 
 	public enum BrowserType {
-		firefox, ie, chrome, htmlunit, remote
+		firefox, ie, chrome, remote
 	}
 }

@@ -1,107 +1,102 @@
 package org.springside.modules.nosql.redis;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.core.io.Resource;
 import org.springside.modules.nosql.redis.JedisTemplate.JedisAction;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.exceptions.JedisDataException;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-
 /**
- * Load and Run the lua scripts and support to reload the script when execution failed.
+ * 装载并执行Lua Script，如果服务器上因为集群多台服务器或重启等原因没有装载script，会自动重新装载后重试。
  */
 public class JedisScriptExecutor {
 	private static Logger logger = LoggerFactory.getLogger(JedisScriptExecutor.class);
 
 	private JedisTemplate jedisTemplate;
 
-	// Map contains <Script Hash, Script Content> pair
-	private BiMap<String, String> hashScriptMap;
-	// Map contains <Script Content, Script Hash> pair
-	private BiMap<String, String> scriptHashMap;
+	private String script;
+	private String sha1;
 
 	public JedisScriptExecutor(JedisPool jedisPool) {
 		this.jedisTemplate = new JedisTemplate(jedisPool);
-		hashScriptMap = HashBiMap.create();
-		scriptHashMap = hashScriptMap.inverse();
+	}
+
+	public JedisScriptExecutor(JedisTemplate jedisTemplate) {
+		this.jedisTemplate = jedisTemplate;
 	}
 
 	/**
-	 * Load the script to redis, return the script hash.
+	 * 装载Lua Script。
+	 * 如果Script出错，抛出JedisDataException。
 	 */
-	public synchronized String load(final String script) {
-		String hash = scriptHashMap.get(script);
+	public void load(final String scriptContent) throws JedisDataException {
+		sha1 = jedisTemplate.execute(new JedisTemplate.JedisAction<String>() {
+			@Override
+			public String action(Jedis jedis) {
+				return jedis.scriptLoad(scriptContent);
+			}
+		});
+		script = scriptContent;
 
-		if (hash == null) {
-			hash = jedisTemplate.execute(new JedisTemplate.JedisAction<String>() {
-				@Override
-				public String action(Jedis jedis) {
-					return jedis.scriptLoad(script);
-				}
-			});
-			hashScriptMap.put(hash, script);
-		}
-
-		return hash;
+		logger.debug("Script \"{}\" had been loaded as {}", scriptContent, sha1);
 	}
 
 	/**
-	 * Execute the script, auto reload the script if it is not in redis.
+	 * 从文件加载Lua Script, 文件路径格式为Spring Resource的格式.
 	 */
-	public Object execute(final String hash, final String[] keys, final String[] args) {
-		return execute(hash, Arrays.asList(keys), Arrays.asList(args));
-	}
-
-	/**
-	 * Execute the script, auto reload the script if it is not in redis.
-	 */
-	public Object execute(final String hash, final List<String> keys, final List<String> args) {
-		if (!hashScriptMap.containsKey(hash)) {
-			throw new IllegalArgumentException("Script hash " + hash + " is not loaded in executor");
-		}
-
+	public void loadFromFile(final String scriptPath) throws JedisDataException {
+		String scriptContent;
 		try {
-			return jedisTemplate.execute(new JedisAction<Object>() {
-				@Override
-				public Object action(Jedis jedis) {
-					return jedis.evalsha(hash, keys, args);
-				}
-			});
-		} catch (JedisDataException e) {
-			logger.warn("Lua execution error, try to reload the script.", e);
-			return reloadAndExecute(hash, keys, args);
+			Resource resource = new DefaultResourceLoader().getResource(scriptPath);
+			scriptContent = FileUtils.readFileToString(resource.getFile());
+		} catch (IOException e) {
+			throw new IllegalArgumentException(scriptPath + " is not exist.", e);
 		}
+
+		load(scriptContent);
 	}
 
 	/**
-	 * Reload the script and execute it again.
+	 * 执行Lua Script, 如果Redis服务器上还没装载Script则自动装载并重试。
+	 * keys与args不允许为null.
 	 */
-	private Object reloadAndExecute(final String hash, final List<String> keys, final List<String> args) {
+	public Object execute(final String[] keys, final String[] args) throws IllegalArgumentException {
+		Validate.notNull(keys, "keys can't be null.");
+		Validate.notNull(args, "args can't be null.");
+
+		return execute(Arrays.asList(keys), Arrays.asList(args));
+	}
+
+	/**
+	 * 执行Lua Script, 如果Redis服务器上还没装载Script则自动装载并重试。
+	 * keys与args不允许为null.
+	 */
+	public Object execute(final List<String> keys, final List<String> args) throws IllegalArgumentException {
+		Validate.notNull(keys, "keys can't be null.");
+		Validate.notNull(args, "args can't be null.");
 
 		return jedisTemplate.execute(new JedisAction<Object>() {
 			@Override
 			public Object action(Jedis jedis) {
-				// concurrent checking again
-				if (!jedis.scriptExists(hash)) {
-					String script = hashScriptMap.get(hash);
-					jedis.scriptLoad(script);
+				try {
+					return jedis.evalsha(sha1, keys, args);
+				} catch (JedisDataException e) {
+					logger.warn(
+							"Script {} is not loaded in server yet or the script is wrong, try to reload and run it again.",
+							script, e);
+					return jedis.eval(script, keys, args);
 				}
-
-				return jedis.evalsha(hash, keys, args);
 			}
 		});
-	}
-
-	// just for test.
-	public Map<String, String> getHashScriptMap() {
-		return hashScriptMap;
 	}
 }

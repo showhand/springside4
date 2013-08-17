@@ -8,6 +8,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -22,6 +23,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springside.examples.showcase.functional.BaseFunctionalTestCase;
 import org.springside.examples.showcase.webservice.rest.UserDTO;
+import org.springside.modules.test.category.Smoke;
 import org.springside.modules.web.Servlets;
 
 import com.google.common.collect.Lists;
@@ -45,7 +47,7 @@ public class UserRestFT extends BaseFunctionalTestCase {
 
 	@BeforeClass
 	public static void initUrl() {
-		resoureUrl = baseUrl + "/api/v1/user";
+		resoureUrl = baseUrl + "/api/secure/v1/user";
 	}
 
 	@Before
@@ -84,6 +86,7 @@ public class UserRestFT extends BaseFunctionalTestCase {
 		// 设置Http Basic参数
 		HttpHeaders requestHeaders = new HttpHeaders();
 		requestHeaders.set(com.google.common.net.HttpHeaders.AUTHORIZATION, Servlets.encodeHttpBasic("admin", "admin"));
+		System.out.println("Http header is" + requestHeaders);
 		HttpEntity<?> requestEntity = new HttpEntity(requestHeaders);
 
 		HttpEntity<UserDTO> response = jdkTemplate.exchange(resoureUrl + "/{id}.xml", HttpMethod.GET, requestEntity,
@@ -104,6 +107,7 @@ public class UserRestFT extends BaseFunctionalTestCase {
 	 * 演示使用Apache Http client4.
 	 */
 	@Test
+	@Category(Smoke.class)
 	public void getUserAsJson() {
 		UserDTO user = httpClientRestTemplate.getForObject(resoureUrl + "/{id}.json", UserDTO.class, 1L);
 		assertEquals("admin", user.getLoginName());
